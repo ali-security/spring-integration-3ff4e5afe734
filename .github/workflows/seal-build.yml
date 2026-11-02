@@ -1,0 +1,27 @@
+name: seal-build
+
+# Build-and-pack only: the project's test suite runs on Travis (.travis.yml).
+on:
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install JDK 1.8.0_232 (the JDK the release was built with)
+        run: |
+          mkdir -p "$RUNNER_TEMP/jdk8"
+          curl -fsSL https://github.com/AdoptOpenJDK/openjdk8-binaries/releases/download/jdk8u232-b09/OpenJDK8U-jdk_x64_linux_hotspot_8u232b09.tar.gz -o "$RUNNER_TEMP/jdk8.tar.gz"
+          tar -xzf "$RUNNER_TEMP/jdk8.tar.gz" -C "$RUNNER_TEMP/jdk8" --strip-components=1
+          echo "JAVA_HOME=$RUNNER_TEMP/jdk8" >> "$GITHUB_ENV"
+          echo "$RUNNER_TEMP/jdk8/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/jdk8/bin/java" -version
+      - name: Build spring-integration-file jar
+        run: ./gradlew :spring-integration-file:jar --no-daemon --console=plain --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: spring-integration-file
+          path: spring-integration-file/build/libs/spring-integration-file-5.2.3.RELEASE.jar
+          if-no-files-found: error

@@ -1,7 +1,9 @@
 buildscript {
 	ext.kotlinVersion = '1.3.61'
 	repositories {
-		maven { url 'https://repo.spring.io/plugins-release' }
+		gradlePluginPortal()
+		mavenCentral()
+		maven { url 'https://repo.gradle.org/gradle/libs-releases' }
 	}
 	dependencies {
 		classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
@@ -13,7 +15,7 @@ buildscript {
 plugins {
 	id 'org.sonarqube' version '2.8'
 	id 'org.asciidoctor.convert' version '1.6.1'
-	id 'org.ajoberstar.grgit' version '3.1.1'
+	id 'org.ajoberstar.grgit' version '4.1.1'
 	id 'io.spring.nohttp' version '0.0.3.RELEASE' apply false
 	id 'io.spring.dependency-management' version '1.0.8.RELEASE' apply false
 }
@@ -103,7 +105,7 @@ allprojects {
 	group = 'org.springframework.integration'
 
 	repositories {
-		maven { url 'https://repo.spring.io/libs-milestone' }
+		mavenCentral()
 		if (project.hasProperty('mavenLocal')) {
 			mavenLocal()
 		}
@@ -358,7 +360,7 @@ subprojects { subproject ->
 			include 'license.txt'
 			include 'notice.txt'
 			into 'META-INF'
-			expand(copyright: new Date().format('yyyy'), version: project.version)
+			expand(copyright: '2020', version: project.version)
 		}
 	}
 

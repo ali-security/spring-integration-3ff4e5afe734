@@ -1,19 +1,30 @@
 dist: trusty
 language: java
-jdk: oraclejdk8
 sudo: false
 services:
   - mongodb
   - rabbitmq
   - redis-server
+  - docker
 before_cache:
   - rm -f $HOME/.gradle/caches/modules-2/modules-2.lock
 cache:
   directories:
     - $HOME/.gradle/caches/
     - $HOME/.gradle/wrapper/
+before_install:
+  - mkdir -p $HOME/jdk8
+  - curl -fsSL https://github.com/AdoptOpenJDK/openjdk8-binaries/releases/download/jdk8u232-b09/OpenJDK8U-jdk_x64_linux_hotspot_8u232b09.tar.gz -o /tmp/jdk8.tar.gz
+  - tar -xzf /tmp/jdk8.tar.gz -C $HOME/jdk8 --strip-components=1
+  - export JAVA_HOME=$HOME/jdk8
+  - export PATH="$JAVA_HOME/bin:$PATH"
+  - java -version
+  - docker run -d --name mqtt-broker -p 1883:1883 rabbitmq:3.8 sh -c 'rabbitmq-plugins enable --offline rabbitmq_mqtt && exec docker-entrypoint.sh rabbitmq-server'
+  - for i in $(seq 1 60); do docker logs mqtt-broker 2>&1 | grep -q "started MQTT TCP listener" && break; sleep 2; done
+  - docker logs mqtt-broker 2>&1 | grep "started MQTT TCP listener"
 install: true
 env:
-  - TERM=dumb SI_FATAL_WHEN_NO_BEANFACTORY=true NO_REFERENCE_TASK=true
+  - TERM=dumb SI_FATAL_WHEN_NO_BEANFACTORY=true NO_REFERENCE_TASK=true RUN_LONG_INTEGRATION_TESTS=true
 script:
-    - ./gradlew checkAsciidocLinks check --refresh-dependencies --no-daemon
+    - ./gradlew check --continue --refresh-dependencies --no-daemon
+    - python3 .travis/print-test-results.py
