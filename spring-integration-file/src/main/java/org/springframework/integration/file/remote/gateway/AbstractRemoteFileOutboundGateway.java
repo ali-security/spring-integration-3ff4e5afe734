@@ -51,6 +51,7 @@ import org.springframework.integration.file.remote.RemoteFileUtils;
 import org.springframework.integration.file.remote.session.Session;
 import org.springframework.integration.file.remote.session.SessionFactory;
 import org.springframework.integration.file.support.FileExistsMode;
+import org.springframework.integration.file.support.FileUtils;
 import org.springframework.integration.handler.AbstractReplyProducingMessageHandler;
 import org.springframework.integration.handler.ExpressionEvaluatingMessageProcessor;
 import org.springframework.integration.support.MutableMessage;
@@ -1027,7 +1028,8 @@ public abstract class AbstractRemoteFileOutboundGateway<F> extends AbstractReply
 			fileInfo = files[0];
 		}
 		File localFile =
-				new File(generateLocalDirectory(message, remoteDir), generateLocalFileName(message, remoteFilename));
+				FileUtils.newFileInDirectoryIfValid(generateLocalDirectory(message, remoteDir),
+						generateLocalFileName(message, remoteFilename));
 		FileExistsMode existsMode = this.fileExistsMode;
 		boolean appending = FileExistsMode.APPEND.equals(existsMode);
 		boolean exists = localFile.exists();

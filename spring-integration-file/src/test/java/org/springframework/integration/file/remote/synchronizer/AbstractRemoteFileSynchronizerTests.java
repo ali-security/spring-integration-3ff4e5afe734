@@ -18,19 +18,24 @@ package org.springframework.integration.file.remote.synchronizer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.InvalidPathException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.junit.Assume;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
 import org.springframework.beans.factory.BeanFactory;
 import org.springframework.integration.file.HeadDirectoryScanner;
@@ -49,6 +54,12 @@ import org.springframework.messaging.MessagingException;
  *
  */
 public class AbstractRemoteFileSynchronizerTests {
+
+	private static final boolean IS_WINDOWS =
+			System.getProperty("os.name", "").toLowerCase().startsWith("windows");
+
+	@Rule
+	public final TemporaryFolder tempFolder = new TemporaryFolder();
 
 	@Test
 	public void testRollback() throws Exception {
@@ -216,6 +227,90 @@ public class AbstractRemoteFileSynchronizerTests {
 		source.setUseWatchService(true);
 		source.setScanner(new HeadDirectoryScanner(1));
 		source.afterPropertiesSet();
+	}
+
+	@Test
+	public void checkPathThrowsOnDirectoryTraversal() throws IOException {
+		verifyDirectoryNotTheSame(this.tempFolder.newFolder(), "../base/escaped.txt");
+	}
+
+	@Test
+	public void checkPathOnDirectoryMidLineTraversal() throws IOException {
+		verifyDirectoryNotTheSame(this.tempFolder.newFolder(), "base/../escaped.txt");
+	}
+
+	private static AbstractInboundFileSynchronizer<String> getAbstractInboundFileSynchronizer(String fileName) {
+		StringSession session = mock(StringSession.class);
+		given(session.list("remoteDir")).willReturn(new String[] { fileName });
+		given(session.getHostPort()).willReturn("mock:1234");
+
+		AbstractInboundFileSynchronizer<String> sync = createSynchronizerWithSession(session);
+		sync.setRemoteDirectory("remoteDir");
+		sync.setBeanFactory(mock(BeanFactory.class));
+		sync.afterPropertiesSet();
+		return sync;
+	}
+
+	@Test
+	public void checkPathThrowsOnDirectoryExtendMidLineTraversal() throws IOException {
+		verifyDirectoryNotTheSame(this.tempFolder.newFolder(), "base/subdir/../../../../escaped.txt");
+	}
+
+	@Test
+	public void checkPathThrowsOnAbsoluteDirectoryTraversalLinuxMacWindows() throws IOException {
+		Assume.assumeTrue(IS_WINDOWS);
+		verifyDirectoryNotTheSame(this.tempFolder.newFolder(), "C:\\projects\\data\\file.txt");
+	}
+
+	@Test
+	public void notTraversalOnCurrentDirWindows() {
+		Assume.assumeTrue(IS_WINDOWS);
+		AbstractInboundFileSynchronizer<String> sync = getAbstractInboundFileSynchronizer("build\\tmp\\file.txt");
+
+		sync.synchronizeToLocalDirectory(new File(""));
+
+		assertThat(new File("build\\tmp\\file.txt")).exists();
+	}
+
+	@Test
+	public void checkPathThrowsOnAbsoluteDirectoryTraversalLinuxMac() throws IOException {
+		Assume.assumeFalse(IS_WINDOWS);
+		verifyDirectoryNotTheSame(this.tempFolder.newFolder(), "/base/escaped.txt");
+	}
+
+	private static void verifyDirectoryNotTheSame(File localDir, String fileName) {
+		AbstractInboundFileSynchronizer<String> sync = getAbstractInboundFileSynchronizer(fileName);
+
+		assertThatExceptionOfType(MessagingException.class)
+				.isThrownBy(() -> sync.synchronizeToLocalDirectory(localDir))
+				.withStackTraceContaining("trying to leave the target output directory")
+				.withRootCauseInstanceOf(InvalidPathException.class);
+	}
+
+	private static AbstractInboundFileSynchronizer<String> createSynchronizerWithSession(StringSession session) {
+		return new AbstractInboundFileSynchronizer<String>(() -> session) {
+
+			@Override
+			protected boolean isFile(String file) {
+				return true;
+			}
+
+			@Override
+			protected String getFilename(String file) {
+				return file;
+			}
+
+			@Override
+			protected long getModified(String file) {
+				return 0;
+			}
+
+			@Override
+			protected String protocol() {
+				return "mock";
+			}
+
+		};
 	}
 
 	private AbstractInboundFileSynchronizingMessageSource<String> createSource(AtomicInteger count) {

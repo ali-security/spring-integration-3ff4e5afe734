@@ -35,6 +35,7 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.InvalidPathException;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -676,6 +677,79 @@ public class RemoteFileOutboundGatewayTests {
 		RemoteFileTemplate<?> template = new RemoteFileTemplate<>(sessionFactory);
 		File outFile = new File(this.tmpDir + "/f1" + template.getTemporaryFileSuffix());
 		assertThat(outFile.exists()).isFalse();
+	}
+
+	@Test
+	public void testGetRejectsLocalFileOutsideLocalDirectory() throws IOException {
+		@SuppressWarnings("unchecked")
+		SessionFactory<TestLsEntry> sessionFactory = mock(SessionFactory.class);
+		TestRemoteFileOutboundGateway gw = new TestRemoteFileOutboundGateway(sessionFactory, "get", "payload");
+		File localDirectory = this.tempFolder.newFolder("getLocalDir");
+		gw.setLocalDirectory(localDirectory);
+		gw.setLocalFilenameGeneratorExpressionString("'../' + #remoteFileName");
+		gw.afterPropertiesSet();
+		when(sessionFactory.getSession()).thenReturn(new TestSession() {
+
+			@Override
+			public TestLsEntry[] list(String path) {
+				return new TestLsEntry[] {
+						new TestLsEntry("escaped.txt", 1234, false, false, 12345, "-rw-r--r--")
+				};
+			}
+
+			@Override
+			public void read(String source, OutputStream outputStream)
+					throws IOException {
+				outputStream.write("testfile".getBytes());
+			}
+
+		});
+
+		assertThatExceptionOfType(MessagingException.class)
+				.isThrownBy(() -> gw.handleRequestMessage(new GenericMessage<>("escaped.txt")))
+				.withStackTraceContaining("trying to leave the target output directory")
+				.withRootCauseInstanceOf(InvalidPathException.class);
+
+		assertThat(new File(this.tempFolder.getRoot(), "escaped.txt")).doesNotExist();
+		assertThat(localDirectory.list()).isEmpty();
+	}
+
+	@Test
+	public void testMGetRejectsAbsoluteLocalFile() throws IOException {
+		@SuppressWarnings("unchecked")
+		SessionFactory<TestLsEntry> sessionFactory = mock(SessionFactory.class);
+		TestRemoteFileOutboundGateway gw = new TestRemoteFileOutboundGateway(sessionFactory, "mget", "payload");
+		File localDirectory = this.tempFolder.newFolder("mgetLocalDir");
+		File outsideDirectory = this.tempFolder.newFolder("mgetOutsideDir");
+		gw.setLocalDirectory(localDirectory);
+		gw.setLocalFilenameGeneratorExpressionString(
+				"'" + outsideDirectory.getAbsolutePath() + File.separator + "' + #remoteFileName");
+		gw.afterPropertiesSet();
+		when(sessionFactory.getSession()).thenReturn(new TestSession() {
+
+			@Override
+			public TestLsEntry[] list(String path) {
+				return new TestLsEntry[] {
+						new TestLsEntry("f1", 123, false, false, 1234, "-r--r--r--"),
+						new TestLsEntry("f2", 123, false, false, 1234, "-r--r--r--")
+				};
+			}
+
+			@Override
+			public void read(String source, OutputStream outputStream)
+					throws IOException {
+				outputStream.write("testData".getBytes());
+			}
+
+		});
+
+		assertThatExceptionOfType(MessagingException.class)
+				.isThrownBy(() -> gw.handleRequestMessage(new GenericMessage<>("testremote/*")))
+				.withStackTraceContaining("trying to leave the target output directory")
+				.withRootCauseInstanceOf(InvalidPathException.class);
+
+		assertThat(outsideDirectory.list()).isEmpty();
+		assertThat(localDirectory.list()).isEmpty();
 	}
 
 

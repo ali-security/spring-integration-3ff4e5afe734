@@ -17,6 +17,7 @@
 package org.springframework.integration.ftp.dsl;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatExceptionOfType;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -25,10 +26,12 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.InvalidPathException;
 import java.util.List;
 import java.util.regex.Matcher;
 
 import org.apache.commons.net.ftp.FTPFile;
+import org.junit.Assume;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -58,6 +61,8 @@ import org.springframework.integration.ftp.session.FtpRemoteFileTemplate;
 import org.springframework.integration.support.MessageBuilder;
 import org.springframework.integration.test.util.TestUtils;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageHandlingException;
+import org.springframework.messaging.MessagingException;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.junit4.SpringRunner;
@@ -248,6 +253,73 @@ public class FtpTests extends FtpTestSupport {
 				.contains(dir + "subFtpSource");
 
 		registration.destroy();
+	}
+
+	@Test
+	public void checkPathThrowsOnDirectoryTraversal() {
+		IntegrationFlow flow = f -> f
+				.handle(
+						Ftp.outboundGateway(sessionFactory(), AbstractRemoteFileOutboundGateway.Command.MGET, "payload")
+								.localDirectoryExpression("'" + getTargetLocalDirectoryName() + "' + #remoteDirectory")
+								.localFilenameExpression("#remoteFileName.replaceFirst('ftpSource', 'test/../../localTarget')")
+								.useTemporaryFileName(true));
+		IntegrationFlowRegistration registration = this.flowContext.registration(flow).register();
+		try {
+			assertThatExceptionOfType(MessagingException.class)
+					.isThrownBy(() -> registration.getInputChannel().send(new GenericMessage<>("ftpSource/" + "*")))
+					.withStackTraceContaining("trying to leave the target output directory")
+					.withRootCauseInstanceOf(InvalidPathException.class);
+		}
+		finally {
+			registration.destroy();
+		}
+	}
+
+	@Test
+	public void checkPathOnAbsoluteUnix() {
+		Assume.assumeFalse(isWindows());
+		IntegrationFlow flow = f -> f
+				.handle(
+						Ftp.outboundGateway(sessionFactory(), AbstractRemoteFileOutboundGateway.Command.MGET, "payload")
+								.localDirectoryExpression("'" + getTargetLocalDirectoryName() + "' + #remoteDirectory")
+								.localFilenameExpression("#remoteFileName.replaceFirst('^\\s*ftpSource', '/localTarget')")
+								.useTemporaryFileName(true));
+		IntegrationFlowRegistration registration = this.flowContext.registration(flow).register();
+		try {
+			assertThatExceptionOfType(MessageHandlingException.class)
+					.isThrownBy(() -> registration.getInputChannel().send(new GenericMessage<>("ftpSource/" + "*")))
+					.withStackTraceContaining("trying to leave the target output directory")
+					.withRootCauseInstanceOf(InvalidPathException.class);
+		}
+		finally {
+			registration.destroy();
+		}
+	}
+
+	@Test
+	public void checkPathOnAbsoluteWindows() {
+		Assume.assumeTrue(isWindows());
+		IntegrationFlow flow = f -> f
+				.handle(
+						Ftp.outboundGateway(sessionFactory(), AbstractRemoteFileOutboundGateway.Command.MGET, "payload")
+								.localDirectoryExpression("'" + getTargetLocalDirectoryName() + "' + #remoteDirectory")
+								.localFilenameExpression(
+										"#remoteFileName.replaceFirst('^\\s*ftpSource', 'c:/')")
+								.useTemporaryFileName(true));
+		IntegrationFlowRegistration registration = this.flowContext.registration(flow).register();
+		try {
+			assertThatExceptionOfType(MessageHandlingException.class)
+					.isThrownBy(() -> registration.getInputChannel().send(new GenericMessage<>("ftpSource/" + "*")))
+					.withStackTraceContaining("trying to leave the target output directory")
+					.withRootCauseInstanceOf(InvalidPathException.class);
+		}
+		finally {
+			registration.destroy();
+		}
+	}
+
+	private static boolean isWindows() {
+		return System.getProperty("os.name", "").toLowerCase().startsWith("windows");
 	}
 
 	@Configuration

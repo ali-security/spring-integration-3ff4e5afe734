@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -74,6 +76,7 @@ import org.springframework.util.StringUtils;
  * @author Oleg Zhurakousky
  * @author Gary Russell
  * @author Artem Bilan
+ * @author Glenn Renfro
  *
  * @since 2.0
  */
@@ -458,7 +461,7 @@ public abstract class AbstractInboundFileSynchronizer<F>
 
 		long modified = getModified(remoteFile);
 
-		File localFile = new File(localDirectory, localFileName);
+		File localFile = FileUtils.newFileInDirectoryIfValid(localDirectory, localFileName);
 		boolean exists = localFile.exists();
 		if (!exists || (this.preserveTimestamp && modified != localFile.lastModified())) {
 			if (!exists &&
@@ -544,11 +547,25 @@ public abstract class AbstractInboundFileSynchronizer<F>
 					+ "' from the remote to the local directory", e);
 		}
 
-		renamed = tempFile.renameTo(localFile);
+		try {
+			Files.move(tempFile.toPath(), localFile.toPath(), StandardCopyOption.ATOMIC_MOVE,
+					StandardCopyOption.REPLACE_EXISTING);
+			renamed = true;
+		}
+		catch (IOException e) {
+			renamed = false;
+		}
 
 		if (!renamed) {
 			if (localFile.delete()) {
-				renamed = tempFile.renameTo(localFile);
+				try {
+					Files.move(tempFile.toPath(), localFile.toPath(), StandardCopyOption.ATOMIC_MOVE,
+							StandardCopyOption.REPLACE_EXISTING);
+					renamed = true;
+				}
+				catch (IOException e) {
+					renamed = false;
+				}
 				if (!renamed && this.logger.isInfoEnabled()) {
 					this.logger.info("Cannot rename '"
 							+ tempFileName
